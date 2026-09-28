@@ -1,0 +1,1691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HTTP Archive schema</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #E8EDF0;
+    --grid: #C4CED6;
+    --ink: #16202A;
+    --muted: #56636E;
+    --line: #D3DBE0;
+    --paper: #FFFFFF;
+    --soft: #F3F6F8;
+
+    --table: #0D5C6B;
+    --table-tint: #DDEEF0;
+    --struct: #9A4F16;
+    --struct-tint: #F7E8DA;
+    --json: #5A3A94;
+    --json-tint: #EDE6F7;
+    --dataset: #3F5566;
+    --dataset-tint: #E3E9EE;
+
+    --filter: #F2C84B;
+    --heavy: #B42318;
+    --heavy-tint: #FDE3E1;
+    --hit: #FFF1B8;
+    --focus: #1D6FD1;
+
+    --sans: "IBM Plex Sans", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body { height: 100%; }
+
+  body {
+    font-family: var(--sans);
+    color: var(--ink);
+    background: var(--bg);
+    overflow: hidden;
+  }
+
+  button { font: inherit; color: inherit; }
+
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+  /* ---------- Top bar ---------- */
+
+  .topbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 20;
+    min-height: 56px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 16px;
+    padding: 8px 16px;
+    background: rgba(255, 255, 255, 0.94);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .brand { display: flex; align-items: baseline; gap: 10px; margin-right: auto; }
+  .brand h1 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+  .brand p { font-size: 13px; color: var(--muted); }
+
+  .search { position: relative; }
+  .search input {
+    width: 240px;
+    height: 34px;
+    padding: 0 10px;
+    font: 13px var(--mono);
+    color: var(--ink);
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+  .search input:focus { border-color: var(--focus); outline: none; box-shadow: 0 0 0 3px rgba(29, 111, 209, 0.15); }
+  .search-count { font-size: 12px; color: var(--muted); min-width: 90px; }
+
+  .bar-button {
+    height: 34px;
+    padding: 0 12px;
+    font-size: 13px;
+    font-weight: 500;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .bar-button:hover { border-color: var(--ink); }
+  .bar-button.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .bar-button.primary:hover { background: #2B3947; }
+
+  /* ---------- Canvas ---------- */
+
+  #canvas {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    cursor: grab;
+    touch-action: none;
+    background-color: var(--bg);
+    background-image: radial-gradient(var(--grid) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  #canvas.panning { cursor: grabbing; }
+
+  #world { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+
+  #links {
+    position: absolute;
+    top: 0; left: 0;
+    width: 4000px; height: 3000px;
+    overflow: visible;
+    pointer-events: none;
+  }
+  #links path { fill: none; stroke-width: 1.6; }
+  #links .link-table { stroke: var(--table); fill: var(--table); }
+  #links .link-struct { stroke: var(--struct); fill: var(--struct); }
+  #links .link-json { stroke: var(--json); fill: var(--json); }
+  #links .link-record { stroke: var(--json); fill: var(--json); }
+  #links .link-dataset { stroke: var(--dataset); fill: var(--dataset); }
+  #links path.link-table, #links path.link-struct, #links path.link-json,
+  #links path.link-record, #links path.link-dataset { fill: none; }
+  #links text { font: 600 12px var(--mono); fill: var(--table); stroke: none; }
+
+  /* ---------- Nodes ---------- */
+
+  .node {
+    position: absolute;
+    width: 340px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-left-width: 4px;
+    border-radius: 6px;
+    box-shadow: 0 1px 0 rgba(22, 32, 42, 0.05), 0 8px 20px -12px rgba(22, 32, 42, 0.35);
+    cursor: default;
+  }
+  .node.kind-table   { border-left-color: var(--table); }
+  .node.kind-struct  { border-left-color: var(--struct); }
+  .node.kind-json    { border-left-color: var(--json); }
+  .node.kind-record  { border-left-color: var(--json); }
+  .node.kind-dataset { border-left-color: var(--dataset); }
+
+  .node.dim { opacity: 0.35; }
+  .node.flash { box-shadow: 0 0 0 3px var(--filter), 0 8px 20px -12px rgba(22, 32, 42, 0.35); }
+  .node.dragging { z-index: 10; box-shadow: 0 16px 32px -14px rgba(22, 32, 42, 0.5); }
+
+  .node-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 8px 9px 12px;
+    border-bottom: 1px solid var(--line);
+    border-radius: 0 5px 0 0;
+    cursor: grab;
+    user-select: none;
+  }
+  .kind-table   .node-head { background: var(--table-tint); }
+  .kind-struct  .node-head { background: var(--struct-tint); }
+  .kind-json    .node-head { background: var(--json-tint); }
+  .kind-record  .node-head { background: var(--json-tint); }
+  .kind-dataset .node-head { background: var(--dataset-tint); }
+
+  .node-head h2 { font: 600 14px var(--mono); flex: 1; }
+  .node-kind { font-size: 11px; color: var(--muted); }
+
+  .toggle {
+    width: 24px; height: 24px;
+    font-size: 15px;
+    line-height: 1;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    color: var(--muted);
+  }
+  .toggle:hover { border-color: var(--line); background: var(--paper); color: var(--ink); }
+
+  .node-note {
+    padding: 7px 12px 6px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--muted);
+    border-bottom: 1px solid var(--soft);
+  }
+
+  .node-fields { padding: 3px 0 5px; }
+
+  .node.collapsed .node-note,
+  .node.collapsed .node-fields { display: none; }
+  .node.collapsed .node-head { border-bottom: none; }
+
+  .field {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    height: 26px;
+    padding: 0 12px;
+    font: 12.5px var(--mono);
+    text-align: left;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+  }
+  .field:hover { background: var(--soft); }
+  .field:focus-visible { outline-offset: -2px; }
+  .field.active { background: var(--table-tint); }
+  .field.hit { background: var(--hit); }
+  .field.current { box-shadow: inset 3px 0 0 var(--struct); }
+
+  .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.7; }
+  .ftype { font-size: 11px; color: var(--muted); }
+  .badges { display: flex; gap: 3px; }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 19px;
+    height: 16px;
+    padding: 0 3px;
+    font: 600 10px var(--mono);
+    border-radius: 3px;
+  }
+  .badge-P, .badge-C { background: var(--filter); color: var(--ink); }
+  .badge-K { border: 1px solid var(--table); color: var(--table); }
+  .badge-R { background: var(--struct-tint); color: var(--struct); }
+  .badge-J { background: var(--json-tint); color: var(--json); }
+  .badge-H { background: var(--heavy-tint); color: var(--heavy); }
+
+  /* ---------- Field popup ---------- */
+
+  #popup {
+    position: fixed;
+    z-index: 30;
+    width: min(430px, calc(100vw - 24px));
+    max-height: calc(100vh - 80px);
+    overflow-y: auto;
+    padding: 14px 16px 16px;
+    background: var(--paper);
+    border: 1px solid var(--ink);
+    border-radius: 8px;
+    box-shadow: 0 18px 40px -18px rgba(22, 32, 42, 0.55);
+  }
+  #popup[hidden] { display: none; }
+
+  .popup-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+  .popup-head h3 { font: 600 16px var(--mono); }
+  .popup-type { font: 12px var(--mono); color: var(--muted); flex: 1; }
+  .popup-close {
+    width: 28px; height: 28px;
+    font-size: 18px;
+    background: none;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    color: var(--muted);
+  }
+  .popup-close:hover { background: var(--soft); color: var(--ink); }
+
+  .popup-desc { font-size: 14px; line-height: 1.55; margin-bottom: 12px; }
+  .popup-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .popup-badge-line { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+
+  .popup-section { margin-top: 12px; }
+  .popup-section h4 {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+    margin-bottom: 5px;
+  }
+
+  pre {
+    padding: 9px 11px;
+    font: 12px/1.55 var(--mono);
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: var(--soft);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+  }
+
+  .copy {
+    padding: 2px 9px;
+    font-size: 12px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .copy:hover { border-color: var(--ink); }
+
+  .goto {
+    margin-top: 14px;
+    padding: 6px 11px;
+    font-size: 13px;
+    background: var(--paper);
+    border: 1px solid var(--ink);
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  .goto:hover { background: var(--ink); color: var(--paper); }
+
+  /* ---------- Queries panel ---------- */
+
+  #queries {
+    position: fixed;
+    z-index: 25;
+    top: 0; right: 0; bottom: 0;
+    width: min(480px, 100vw);
+    display: flex;
+    flex-direction: column;
+    background: var(--paper);
+    border-left: 1px solid var(--line);
+    box-shadow: -18px 0 40px -28px rgba(22, 32, 42, 0.6);
+    transform: translateX(100%);
+    transition: transform 0.2s ease;
+    visibility: hidden;
+  }
+  #queries.open { transform: translateX(0); visibility: visible; }
+
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--line);
+  }
+  .panel-head h2 { font-size: 16px; font-weight: 600; }
+  .panel-intro { padding: 12px 18px 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
+  .panel-intro code { font-family: var(--mono); color: var(--ink); }
+
+  .panel-body { overflow-y: auto; padding: 4px 18px 24px; }
+  .query { padding: 16px 0; border-bottom: 1px solid var(--soft); }
+  .query h3 { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+  .query p { font-size: 13px; line-height: 1.5; color: var(--muted); margin-bottom: 8px; }
+
+  /* ---------- Legend and zoom ---------- */
+
+  .legend {
+    position: fixed;
+    z-index: 15;
+    left: 16px; right: 200px; bottom: 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    align-items: center;
+    padding: 10px 12px;
+    font-size: 12px;
+    background: rgba(255, 255, 255, 0.94);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+
+  .zoom {
+    position: fixed;
+    z-index: 15;
+    right: 16px; bottom: 16px;
+    display: flex;
+    align-items: center;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+  .zoom button {
+    width: 34px; height: 32px;
+    font-size: 16px;
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+  .zoom button:hover { background: var(--soft); }
+  .legend-item { display: inline-flex; align-items: center; gap: 6px; }
+
+  .zoom span { min-width: 48px; text-align: center; font: 12px var(--mono); color: var(--muted); }
+
+  @media (max-width: 760px) {
+    .brand p { display: none; }
+    .search input { width: 160px; }
+    .legend { display: none; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #queries { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <h1>HTTP Archive schema</h1>
+    <p>The crawl dataset on BigQuery. Click any field to see an example and a query.</p>
+  </div>
+  <div class="search">
+    <input id="search" type="search" placeholder="Find a field ( / )" aria-label="Find a field">
+  </div>
+  <span class="search-count" id="search-count" aria-live="polite"></span>
+  <button class="bar-button" id="collapse-all">Collapse all</button>
+  <button class="bar-button" id="expand-all">Expand all</button>
+  <button class="bar-button primary" id="open-queries" aria-expanded="false" aria-controls="queries">Example queries</button>
+</header>
+
+<main id="canvas">
+  <div id="world">
+    <svg id="links" aria-hidden="true"></svg>
+  </div>
+</main>
+
+<div id="popup" role="dialog" aria-labelledby="popup-title" hidden></div>
+
+<aside id="queries" aria-label="Example queries">
+  <div class="panel-head">
+    <h2>Example queries</h2>
+    <button class="popup-close" id="close-queries" aria-label="Close">×</button>
+  </div>
+  <p class="panel-intro" id="queries-intro"></p>
+  <div class="panel-body" id="queries-list"></div>
+</aside>
+
+<div class="legend" id="legend"></div>
+
+<div class="zoom">
+  <button id="zoom-out" aria-label="Zoom out">−</button>
+  <span id="zoom-label">100%</span>
+  <button id="zoom-in" aria-label="Zoom in">+</button>
+  <button id="zoom-fit" aria-label="Fit to screen" style="width:auto;padding:0 10px;font-size:13px;border-left:1px solid var(--line)">Fit</button>
+</div>
+
+<script>
+/* =====================================================================
+   Settings
+   ===================================================================== */
+
+// Change this to the crawl month you want to query.
+const CRAWL_DATE = "2026-08-01";
+
+const TOPBAR_HEIGHT = 56;
+
+
+/* =====================================================================
+   Badges shown next to each field
+   ===================================================================== */
+
+const BADGES = {
+  P: { text: "P",  meaning: "Partition column: always filter on it" },
+  C: { text: "C",  meaning: "Cluster column: filtering on it lowers the cost" },
+  K: { text: "K",  meaning: "Join key between pages and requests" },
+  R: { text: "[]", meaning: "Repeated field: flatten it with UNNEST" },
+  J: { text: "{}", meaning: "JSON: cast values with INT64(), STRING(), ..." },
+  H: { text: "$",  meaning: "Very large column: expensive to scan" }
+};
+
+const KIND_LABELS = {
+  table: "table",
+  struct: "repeated struct",
+  record: "record of JSON columns",
+  json: "JSON object",
+  dataset: "dataset"
+};
+
+
+/* =====================================================================
+   Schema
+   Every SQL snippet and example is an array of lines.
+   {DATE} is replaced by CRAWL_DATE.
+   ===================================================================== */
+
+const NODES = {
+
+  pages: {
+    title: "crawl.pages",
+    kind: "table",
+    x: 460, y: 90,
+    note: "One row per page load. Partitioned by date, clustered by client, is_root_page and rank.",
+    fields: [
+      {
+        name: "date", type: "DATE", badges: ["P"],
+        desc: "Month of the crawl, in YYYY-MM-DD format. This is the partition column: always filter on it, or the query scans every month.",
+        example: ["'" + CRAWL_DATE + "'"],
+        sql: ["WHERE date = '{DATE}'"]
+      },
+      {
+        name: "client", type: "STRING", badges: ["C"],
+        desc: "Test environment: 'desktop' or 'mobile'. Every site is tested once with each.",
+        example: ["'mobile'"],
+        sql: ["AND client = 'mobile'"]
+      },
+      {
+        name: "page", type: "STRING", badges: ["K"],
+        desc: "URL of the tested page. Together with date and client, it links each page to its requests in crawl.requests.",
+        example: ["'https://www.example.com/'"],
+        sql: [
+          "FROM `httparchive.crawl.pages` AS p",
+          "JOIN `httparchive.crawl.requests` AS r",
+          "  ON r.date = p.date",
+          "  AND r.client = p.client",
+          "  AND r.page = p.page"
+        ],
+        target: "requests", targetField: "page", linkLabel: "1 : N"
+      },
+      {
+        name: "is_root_page", type: "BOOLEAN", badges: ["C"],
+        desc: "true for the home page of the site, false for the secondary page. Both are tested since April 2022.",
+        example: ["true"],
+        sql: ["AND is_root_page"]
+      },
+      {
+        name: "root_page", type: "STRING", badges: [],
+        desc: "Origin of the site followed by /. Count distinct values of this field to count websites instead of pages.",
+        example: ["'https://www.example.com/'"],
+        sql: ["COUNT(DISTINCT root_page) AS websites"]
+      },
+      {
+        name: "rank", type: "INTEGER", badges: ["C"],
+        desc: "Popularity bucket from the Chrome UX Report: 1000, 10000, 100000 and so on. A smaller number means a more popular site.",
+        example: ["10000"],
+        sql: ["AND rank <= 10000"]
+      },
+      {
+        name: "wptid", type: "STRING", badges: [],
+        desc: "ID of the WebPageTest run. It starts with the test date (YYMMDD), followed by D or M for desktop or mobile.",
+        example: ["'230509_Dx20W_FMHK5'"],
+        sql: ["SUBSTR(wptid, 1, 6) AS test_day"]
+      },
+      {
+        name: "summary", type: "JSON", badges: ["J"],
+        desc: "Page-level summary: number of requests, bytes, domains and more. Values are JSON, so they need a cast.",
+        example: ["{\"reqTotal\": 74, \"bytesTotal\": 1843201,", " \"numDomains\": 12, ...}"],
+        sql: ["INT64(summary.reqTotal) AS requests"],
+        target: "pageSummary"
+      },
+      {
+        name: "payload", type: "JSON", badges: ["J", "H"],
+        desc: "Full WebPageTest result for the page. Very large: use it only when summary, custom_metrics and lighthouse do not have what you need."
+      },
+      {
+        name: "custom_metrics", type: "RECORD", badges: [],
+        desc: "One JSON column per topic, filled by JavaScript that runs on the page at the end of the test. You pay only for the sub-columns you select.",
+        sql: ["custom_metrics.security"],
+        target: "customMetrics"
+      },
+      {
+        name: "lighthouse", type: "JSON", badges: ["J", "H"],
+        desc: "Full Lighthouse report of the page: category scores and the result of every audit.",
+        sql: ["FLOAT64(lighthouse.categories.performance.score) AS perf_score"],
+        target: "lighthouse"
+      },
+      {
+        name: "features", type: "ARRAY<STRUCT>", badges: ["R"],
+        desc: "Chrome (Blink) features used by the page at runtime. Repeated: flatten it with UNNEST.",
+        sql: ["FROM `httparchive.crawl.pages`,", "  UNNEST(features) AS f"],
+        target: "features"
+      },
+      {
+        name: "technologies", type: "ARRAY<STRUCT>", badges: ["R"],
+        desc: "Technologies detected on the page by Wappalyzer: CMS, JavaScript libraries, CDNs, analytics and more. Repeated: flatten it with UNNEST.",
+        sql: ["FROM `httparchive.crawl.pages`,", "  UNNEST(technologies) AS t"],
+        target: "technologies"
+      },
+      {
+        name: "metadata", type: "JSON", badges: ["J"],
+        desc: "Additional metadata about the test."
+      }
+    ]
+  },
+
+  requests: {
+    title: "crawl.requests",
+    kind: "table",
+    x: 880, y: 90,
+    note: "One row per HTTP request made during a page load. Partitioned by date, clustered by client, is_root_page, rank and type.",
+    fields: [
+      {
+        name: "date", type: "DATE", badges: ["P"],
+        desc: "Month of the crawl. Partition column: always filter on it, also on this side of a join.",
+        example: ["'" + CRAWL_DATE + "'"],
+        sql: ["WHERE date = '{DATE}'"]
+      },
+      {
+        name: "client", type: "STRING", badges: ["C"],
+        desc: "Test environment: 'desktop' or 'mobile'.",
+        example: ["'desktop'"],
+        sql: ["AND client = 'desktop'"]
+      },
+      {
+        name: "page", type: "STRING", badges: ["K"],
+        desc: "URL of the page that made this request. Join key with crawl.pages, together with date and client.",
+        example: ["'https://www.example.com/'"],
+        sql: ["ON r.date = p.date AND r.client = p.client AND r.page = p.page"]
+      },
+      {
+        name: "is_root_page", type: "BOOLEAN", badges: ["C"],
+        desc: "Same meaning as in crawl.pages: home page or secondary page.",
+        example: ["true"],
+        sql: ["AND is_root_page"]
+      },
+      {
+        name: "root_page", type: "STRING", badges: [],
+        desc: "Origin of the page that made the request.",
+        example: ["'https://www.example.com/'"],
+        sql: ["COUNT(DISTINCT root_page) AS websites"]
+      },
+      {
+        name: "rank", type: "INTEGER", badges: ["C"],
+        desc: "Popularity bucket of the page, copied from crawl.pages.",
+        example: ["1000"],
+        sql: ["AND rank <= 1000"]
+      },
+      {
+        name: "url", type: "STRING", badges: [],
+        desc: "URL of the requested resource.",
+        example: ["'https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js'"],
+        sql: ["NET.REG_DOMAIN(url) AS domain"]
+      },
+      {
+        name: "is_main_document", type: "BOOLEAN", badges: [],
+        desc: "true for the main HTML document of the page: the first HTML response after redirects. Use it to read the headers the site itself sends.",
+        example: ["true"],
+        sql: ["AND is_main_document"]
+      },
+      {
+        name: "type", type: "STRING", badges: ["C"],
+        desc: "Simplified resource type: script, css, image, html, font, video and others.",
+        example: ["'script'"],
+        sql: ["AND type = 'script'"]
+      },
+      {
+        name: "index", type: "INTEGER", badges: [],
+        desc: "Order of the request during the page load.",
+        example: ["7"],
+        sql: ["ORDER BY index"]
+      },
+      {
+        name: "summary", type: "JSON", badges: ["J"],
+        desc: "Request summary: status code, body size, MIME type, file format and more. Values need a cast.",
+        example: ["{\"status\": 200, \"respBodySize\": 87533,", " \"mimeType\": \"application/javascript\", ...}"],
+        sql: ["INT64(summary.respBodySize) AS body_bytes"],
+        target: "requestSummary"
+      },
+      {
+        name: "payload", type: "JSON", badges: ["J", "H"],
+        desc: "Full HAR entry of the request: timings, initiator, headers and more. Very large."
+      },
+      {
+        name: "request_headers", type: "ARRAY<STRUCT>", badges: ["R"],
+        desc: "Headers sent by the browser, as name/value pairs. Repeated: flatten it with UNNEST.",
+        sql: ["FROM `httparchive.crawl.requests`,", "  UNNEST(request_headers) AS h"],
+        target: "headers"
+      },
+      {
+        name: "response_headers", type: "ARRAY<STRUCT>", badges: ["R"],
+        desc: "Headers sent back by the server, as name/value pairs. Repeated: flatten it with UNNEST.",
+        sql: ["FROM `httparchive.crawl.requests`,", "  UNNEST(response_headers) AS h"],
+        target: "headers"
+      },
+      {
+        name: "response_body", type: "STRING", badges: ["H"],
+        desc: "Text body of the response. The most expensive column of the dataset: check custom_metrics first, and try the query on sample_data.",
+        example: ["'/*! jQuery v3.7.1 | (c) OpenJS Foundation ...'"],
+        sql: ["AND REGEXP_CONTAINS(response_body, r'jQuery v3')"]
+      }
+    ]
+  },
+
+  technologies: {
+    title: "technologies",
+    kind: "struct",
+    x: 40, y: 760,
+    note: "One element per detected technology. Reach it with UNNEST(technologies) AS t.",
+    fields: [
+      {
+        name: "technology", type: "STRING", badges: [],
+        desc: "Name of the technology, as defined by Wappalyzer.",
+        example: ["'WordPress'"],
+        sql: ["AND t.technology = 'WordPress'"]
+      },
+      {
+        name: "categories", type: "ARRAY<STRING>", badges: ["R"],
+        desc: "Categories of the technology. One technology can be in more than one category.",
+        example: ["[\"CMS\", \"Blogs\"]"],
+        sql: [
+          "FROM `httparchive.crawl.pages`,",
+          "  UNNEST(technologies) AS t,",
+          "  UNNEST(t.categories) AS category",
+          "WHERE category = 'CDN'"
+        ]
+      },
+      {
+        name: "info", type: "ARRAY<STRING>", badges: ["R"],
+        desc: "Extra data about the detection, usually the version. Empty when the version is unknown.",
+        example: ["[\"3.7.1\"]"],
+        sql: [
+          "FROM `httparchive.crawl.pages`,",
+          "  UNNEST(technologies) AS t,",
+          "  UNNEST(t.info) AS version"
+        ]
+      }
+    ]
+  },
+
+  features: {
+    title: "features",
+    kind: "struct",
+    x: 40, y: 990,
+    note: "One element per Blink feature used by the page. Reach it with UNNEST(features) AS f.",
+    fields: [
+      {
+        name: "feature", type: "STRING", badges: [],
+        desc: "Name of the Blink feature.",
+        example: ["'SecureContextCheckPassed'"],
+        sql: ["AND f.feature = 'SecureContextCheckPassed'"]
+      },
+      {
+        name: "id", type: "STRING", badges: [],
+        desc: "Numeric ID of the feature, stored as a string.",
+        example: ["'2078'"],
+        sql: ["AND f.id = '2078'"]
+      },
+      {
+        name: "type", type: "STRING", badges: [],
+        desc: "Feature type: 'default' or 'css'.",
+        example: ["'css'"],
+        sql: ["AND f.type = 'css'"]
+      }
+    ]
+  },
+
+  customMetrics: {
+    title: "custom_metrics",
+    kind: "record",
+    x: 40, y: 90,
+    note: "One JSON column per topic. Selecting custom_metrics.a11y costs far less than selecting all of custom_metrics.",
+    fields: [
+      { name: "a11y", type: "JSON", badges: ["J"], desc: "Accessibility metrics.", sql: ["custom_metrics.a11y"] },
+      { name: "cms", type: "JSON", badges: ["J"], desc: "Details about the content management system.", sql: ["custom_metrics.cms"] },
+      { name: "cookies", type: "JSON", badges: ["J"], desc: "Cookies set during the page load.", sql: ["custom_metrics.cookies"] },
+      { name: "css_variables", type: "JSON", badges: ["J"], desc: "CSS custom properties used by the page.", sql: ["custom_metrics.css_variables"] },
+      { name: "ecommerce", type: "JSON", badges: ["J"], desc: "E-commerce signals.", sql: ["custom_metrics.ecommerce"] },
+      { name: "element_count", type: "JSON", badges: ["J"], desc: "How many times each HTML element appears.", sql: ["custom_metrics.element_count"] },
+      { name: "javascript", type: "JSON", badges: ["J"], desc: "JavaScript usage on the page.", sql: ["custom_metrics.javascript"] },
+      { name: "markup", type: "JSON", badges: ["J"], desc: "HTML markup features.", sql: ["custom_metrics.markup"] },
+      { name: "media", type: "JSON", badges: ["J"], desc: "Images, video and other media.", sql: ["custom_metrics.media"] },
+      { name: "origin_trials", type: "JSON", badges: ["J"], desc: "Chrome origin trials used by the page.", sql: ["custom_metrics.origin_trials"] },
+      {
+        name: "performance", type: "JSON", badges: ["J"],
+        desc: "Performance data, for example details about the Largest Contentful Paint element.",
+        sql: ["STRING(custom_metrics.performance.lcp_elem_stats.nodeName) AS lcp_element"]
+      },
+      {
+        name: "privacy", type: "JSON", badges: ["J"],
+        desc: "Privacy signals: consent frameworks (IAB TCF, USP), Global Privacy Control, referrer policy, fingerprinting APIs.",
+        example: ["{\"navigator_globalPrivacyControl\": false,", " \"iab_tcf_v2\": {\"present\": false, ...},", " \"fingerprinting\": {...}, ...}"],
+        sql: ["BOOL(custom_metrics.privacy.navigator_globalPrivacyControl) AS gpc"]
+      },
+      { name: "responsive_images", type: "JSON", badges: ["J"], desc: "Use of responsive images (srcset, sizes, picture).", sql: ["custom_metrics.responsive_images"] },
+      { name: "robots_txt", type: "JSON", badges: ["J"], desc: "Content and rules of the site's robots.txt.", sql: ["custom_metrics.robots_txt"] },
+      { name: "security", type: "JSON", badges: ["J"], desc: "Security features seen on the page.", sql: ["custom_metrics.security"] },
+      { name: "structured_data", type: "JSON", badges: ["J"], desc: "Structured data such as JSON-LD and microdata.", sql: ["custom_metrics.structured_data"] },
+      { name: "third_parties", type: "JSON", badges: ["J"], desc: "Third-party usage on the page.", sql: ["custom_metrics.third_parties"] },
+      { name: "well_known", type: "JSON", badges: ["J"], desc: "Resources under /.well-known/ on the site.", sql: ["custom_metrics.well_known"] },
+      {
+        name: "wpt_bodies", type: "JSON", badges: ["J"],
+        desc: "Metrics derived from the response bodies, such as the page title and the meta description after JavaScript ran.",
+        sql: ["STRING(custom_metrics.wpt_bodies.title.rendered.primary.text) AS title"]
+      },
+      {
+        name: "other", type: "JSON", badges: ["J"],
+        desc: "Everything else: ads, pwa, num_scripts, avg_dom_depth, doctype and many more.",
+        sql: ["INT64(custom_metrics.other.avg_dom_depth) AS dom_depth"]
+      }
+    ]
+  },
+
+  pageSummary: {
+    title: "pages.summary",
+    kind: "json",
+    x: 460, y: 700,
+    note: "Main keys only; the object has many more. Cast every value: INT64(), STRING(), BOOL().",
+    fields: [
+      { name: "reqTotal", type: "INT64", badges: [], desc: "Number of requests made by the page.", example: ["74"], sql: ["INT64(summary.reqTotal)"] },
+      { name: "bytesTotal", type: "INT64", badges: [], desc: "Total bytes transferred by the page.", example: ["1843201"], sql: ["INT64(summary.bytesTotal)"] },
+      { name: "numDomains", type: "INT64", badges: [], desc: "Number of distinct domains contacted by the page.", example: ["12"], sql: ["INT64(summary.numDomains)"] }
+    ]
+  },
+
+  lighthouse: {
+    title: "lighthouse",
+    kind: "json",
+    x: 460, y: 930,
+    note: "Standard Lighthouse report. Audit ids contain dashes, so wrap them in backticks.",
+    fields: [
+      {
+        name: "categories", type: "JSON", badges: [],
+        desc: "Score of each category, between 0 and 1: performance, accessibility, best-practices, seo.",
+        example: ["{\"performance\": {\"score\": 0.62, ...}, ...}"],
+        sql: ["FLOAT64(lighthouse.categories.performance.score)"]
+      },
+      {
+        name: "audits", type: "JSON", badges: [],
+        desc: "Result of every audit, keyed by audit id.",
+        sql: ["FLOAT64(lighthouse.audits.`largest-contentful-paint`.numericValue) AS lcp_ms"]
+      }
+    ]
+  },
+
+  requestSummary: {
+    title: "requests.summary",
+    kind: "json",
+    x: 880, y: 640,
+    note: "Main keys only; the object has many more. Cast every value: INT64(), STRING(), BOOL().",
+    fields: [
+      { name: "status", type: "INT64", badges: [], desc: "HTTP status code of the response.", example: ["200"], sql: ["INT64(summary.status)"] },
+      { name: "respBodySize", type: "INT64", badges: [], desc: "Size of the response body in bytes.", example: ["87533"], sql: ["INT64(summary.respBodySize)"] },
+      { name: "mimeType", type: "STRING", badges: [], desc: "MIME type of the response.", example: ["\"application/javascript\""], sql: ["STRING(summary.mimeType)"] },
+      { name: "format", type: "STRING", badges: [], desc: "Detected file format, for example jpg, png, webp or avif.", example: ["\"webp\""], sql: ["STRING(summary.format)"] }
+    ]
+  },
+
+  headers: {
+    title: "headers",
+    kind: "struct",
+    x: 880, y: 900,
+    note: "Shape of request_headers and response_headers: one element per header.",
+    fields: [
+      {
+        name: "name", type: "STRING", badges: [],
+        desc: "Header name. The case is not normalized, so always compare with LOWER(name).",
+        example: ["'Content-Security-Policy'"],
+        sql: [
+          "FROM `httparchive.crawl.requests`,",
+          "  UNNEST(response_headers) AS h",
+          "WHERE LOWER(h.name) = 'content-security-policy'"
+        ]
+      },
+      {
+        name: "value", type: "STRING", badges: [],
+        desc: "Header value, exactly as sent.",
+        example: ["'max-age=31536000; includeSubDomains'"],
+        sql: ["h.value AS header_value"]
+      }
+    ]
+  },
+
+  sampleData: {
+    title: "sample_data",
+    kind: "dataset",
+    x: 1300, y: 90,
+    note: "Small copies of the main tables, with the same schema. Write and test your query here, then switch to crawl.",
+    fields: [
+      {
+        name: "pages_10k", type: "TABLE", badges: [],
+        desc: "About 10,000 pages from crawl.pages. Same columns, tiny cost.",
+        sql: ["FROM `httparchive.sample_data.pages_10k`"]
+      },
+      {
+        name: "requests_10k", type: "TABLE", badges: [],
+        desc: "The requests of those pages, from crawl.requests. Same columns, tiny cost.",
+        sql: ["FROM `httparchive.sample_data.requests_10k`"]
+      }
+    ]
+  }
+};
+
+
+/* =====================================================================
+   Ready-made queries for the side panel
+   ===================================================================== */
+
+const QUERIES = [
+  {
+    title: "Count the pages in one crawl",
+    note: "A cheap first query to check that your BigQuery access works.",
+    sql: [
+      "SELECT",
+      "  client,",
+      "  is_root_page,",
+      "  COUNT(0) AS pages",
+      "FROM `httparchive.crawl.pages`",
+      "WHERE date = '{DATE}'",
+      "GROUP BY client, is_root_page"
+    ]
+  },
+  {
+    title: "Websites using a technology, by version",
+    note: "technologies and info are both arrays, so both need UNNEST.",
+    sql: [
+      "SELECT",
+      "  version,",
+      "  COUNT(DISTINCT root_page) AS websites",
+      "FROM `httparchive.crawl.pages`,",
+      "  UNNEST(technologies) AS t,",
+      "  UNNEST(t.info) AS version",
+      "WHERE date = '{DATE}'",
+      "  AND client = 'mobile'",
+      "  AND t.technology = 'jQuery'",
+      "GROUP BY version",
+      "ORDER BY websites DESC"
+    ]
+  },
+  {
+    title: "Sites sending a security header",
+    note: "Reads the headers of the main HTML document only.",
+    sql: [
+      "SELECT",
+      "  root_page,",
+      "  h.value AS csp",
+      "FROM `httparchive.crawl.requests`,",
+      "  UNNEST(response_headers) AS h",
+      "WHERE date = '{DATE}'",
+      "  AND client = 'desktop'",
+      "  AND is_root_page",
+      "  AND is_main_document",
+      "  AND LOWER(h.name) = 'content-security-policy'"
+    ]
+  },
+  {
+    title: "Average requests per page, on a 1% sample",
+    note: "TABLESAMPLE reads only a part of the table, so it is much cheaper.",
+    sql: [
+      "SELECT",
+      "  client,",
+      "  AVG(INT64(summary.reqTotal)) AS avg_requests",
+      "FROM `httparchive.crawl.pages` TABLESAMPLE SYSTEM (1 PERCENT)",
+      "WHERE date = '{DATE}'",
+      "GROUP BY client"
+    ]
+  },
+  {
+    title: "Scripts loaded by the top 1,000 sites",
+    note: "Joins pages and requests. The date filter is repeated on both tables so both partitions are pruned.",
+    sql: [
+      "SELECT",
+      "  p.root_page,",
+      "  COUNT(r.url) AS scripts",
+      "FROM `httparchive.crawl.pages` AS p",
+      "JOIN `httparchive.crawl.requests` AS r",
+      "  ON r.date = p.date",
+      "  AND r.client = p.client",
+      "  AND r.page = p.page",
+      "WHERE p.date = '{DATE}'",
+      "  AND r.date = '{DATE}'",
+      "  AND p.client = 'mobile'",
+      "  AND r.client = 'mobile'",
+      "  AND p.is_root_page",
+      "  AND p.rank <= 1000",
+      "  AND r.type = 'script'",
+      "GROUP BY p.root_page",
+      "ORDER BY scripts DESC"
+    ]
+  },
+  {
+    title: "Title and meta description of each page",
+    note: "Uses custom metrics instead of parsing response_body: cheaper and more reliable.",
+    sql: [
+      "SELECT",
+      "  page,",
+      "  STRING(custom_metrics.wpt_bodies.title.rendered.primary.text) AS title,",
+      "  STRING(custom_metrics.wpt_bodies.meta_description.rendered.primary.text) AS description",
+      "FROM `httparchive.crawl.pages`",
+      "WHERE date = '{DATE}'",
+      "  AND client = 'mobile'",
+      "  AND rank <= 1000"
+    ]
+  }
+];
+
+
+/* =====================================================================
+   State
+   ===================================================================== */
+
+const view = { x: 0, y: 0, scale: 1 };
+const nodeState = {};      // key -> { el, x, y, fieldEls }
+const links = [];          // built from the "target" of each field
+let drag = null;
+let searchMatches = [];
+let searchIndex = -1;
+let activeField = null;
+
+const canvas = document.getElementById("canvas");
+const world = document.getElementById("world");
+const svg = document.getElementById("links");
+const popup = document.getElementById("popup");
+
+
+/* =====================================================================
+   Small helpers
+   ===================================================================== */
+
+function withDate(lines) {
+  const text = lines.join("\n");
+  return text.replaceAll("{DATE}", CRAWL_DATE);
+}
+
+function makeElement(tag, className, text) {
+  const element = document.createElement(tag);
+  if (className) {
+    element.className = className;
+  }
+  if (text !== undefined) {
+    element.textContent = text;
+  }
+  return element;
+}
+
+function findField(nodeKey, fieldName) {
+  for (const field of NODES[nodeKey].fields) {
+    if (field.name === fieldName) {
+      return field;
+    }
+  }
+  return null;
+}
+
+function copyToClipboard(text, button) {
+  navigator.clipboard.writeText(text);
+  button.textContent = "Copied";
+  setTimeout(function () {
+    button.textContent = "Copy";
+  }, 1500);
+}
+
+function makeCopyBlock(title, text) {
+  const section = makeElement("div", "popup-section");
+  const heading = makeElement("h4", "", title);
+  const button = makeElement("button", "copy", "Copy");
+  button.addEventListener("click", function () {
+    copyToClipboard(text, button);
+  });
+  heading.appendChild(button);
+  section.appendChild(heading);
+  section.appendChild(makeElement("pre", "", text));
+  return section;
+}
+
+
+/* =====================================================================
+   Build the nodes
+   ===================================================================== */
+
+function buildNode(key) {
+  const data = NODES[key];
+
+  const node = makeElement("section", "node kind-" + data.kind);
+  node.id = "node-" + key;
+  node.style.left = data.x + "px";
+  node.style.top = data.y + "px";
+
+  // Header: drag handle, title, collapse button
+  const head = makeElement("div", "node-head");
+  head.appendChild(makeElement("h2", "", data.title));
+  head.appendChild(makeElement("span", "node-kind", KIND_LABELS[data.kind]));
+  const toggle = makeElement("button", "toggle", "–");
+  toggle.setAttribute("aria-label", "Collapse " + data.title);
+  toggle.addEventListener("click", function () {
+    toggleNode(key);
+  });
+  head.appendChild(toggle);
+  head.addEventListener("pointerdown", function (event) {
+    startNodeDrag(event, key);
+  });
+  node.appendChild(head);
+
+  node.appendChild(makeElement("p", "node-note", data.note));
+
+  // Fields
+  const fieldList = makeElement("div", "node-fields");
+  const fieldEls = {};
+
+  for (const field of data.fields) {
+    const row = makeElement("button", "field");
+    row.appendChild(makeElement("span", "fname", field.name));
+
+    const badgeBox = makeElement("span", "badges");
+    for (const code of field.badges || []) {
+      const badge = makeElement("span", "badge badge-" + code, BADGES[code].text);
+      badge.title = BADGES[code].meaning;
+      badgeBox.appendChild(badge);
+    }
+    row.appendChild(badgeBox);
+
+    row.appendChild(makeElement("span", "ftype", field.type));
+    row.addEventListener("click", function () {
+      openPopup(key, field.name, row);
+    });
+
+    fieldList.appendChild(row);
+    fieldEls[field.name] = row;
+  }
+  node.appendChild(fieldList);
+
+  world.appendChild(node);
+  nodeState[key] = { el: node, x: data.x, y: data.y, fieldEls: fieldEls };
+}
+
+function buildLinks() {
+  for (const key in NODES) {
+    for (const field of NODES[key].fields) {
+      if (field.target) {
+        links.push({
+          from: key,
+          field: field.name,
+          to: field.target,
+          toField: field.targetField,
+          label: field.linkLabel
+        });
+      }
+    }
+  }
+}
+
+
+/* =====================================================================
+   Draw the connections
+   ===================================================================== */
+
+function anchorY(node, fieldName) {
+  const headerMiddle = node.y + 20;
+  if (!fieldName) {
+    return headerMiddle;
+  }
+  if (node.el.classList.contains("collapsed")) {
+    return headerMiddle;
+  }
+  const fieldEl = node.fieldEls[fieldName];
+  return node.y + fieldEl.offsetTop + fieldEl.offsetHeight / 2;
+}
+
+function linkMarkup(link) {
+  const from = nodeState[link.from];
+  const to = nodeState[link.to];
+  const fromWidth = from.el.offsetWidth;
+  const toWidth = to.el.offsetWidth;
+  const fromCenter = from.x + fromWidth / 2;
+  const toCenter = to.x + toWidth / 2;
+
+  const startY = anchorY(from, link.field);
+  const endY = anchorY(to, link.toField);
+
+  let startX;
+  let endX;
+  let control1;
+  let control2;
+
+  if (Math.abs(fromCenter - toCenter) < 60) {
+    // Same column: leave on the right, loop, come back on the right
+    startX = from.x + fromWidth;
+    endX = to.x + toWidth;
+    control1 = startX + 60;
+    control2 = endX + 60;
+  } else if (toCenter > fromCenter) {
+    // Target on the right
+    startX = from.x + fromWidth;
+    endX = to.x;
+    control1 = startX + 80;
+    control2 = endX - 80;
+  } else {
+    // Target on the left
+    startX = from.x;
+    endX = to.x + toWidth;
+    control1 = startX - 80;
+    control2 = endX + 80;
+  }
+
+  const colorClass = "link-" + NODES[link.to].kind;
+  const path = "M " + startX + " " + startY +
+               " C " + control1 + " " + startY + ", " +
+               control2 + " " + endY + ", " + endX + " " + endY;
+
+  let markup = '<path class="' + colorClass + '" d="' + path + '"/>';
+  markup += '<circle class="' + colorClass + '" cx="' + startX + '" cy="' + startY + '" r="3"/>';
+  markup += '<circle class="' + colorClass + '" cx="' + endX + '" cy="' + endY + '" r="3"/>';
+
+  if (link.label) {
+    const labelX = (startX + endX) / 2;
+    const labelY = (startY + endY) / 2 - 8;
+    markup += '<text x="' + labelX + '" y="' + labelY + '" text-anchor="middle">' + link.label + '</text>';
+  }
+  return markup;
+}
+
+function drawLinks() {
+  let markup = "";
+  for (const link of links) {
+    markup += linkMarkup(link);
+  }
+  svg.innerHTML = markup;
+}
+
+
+/* =====================================================================
+   Pan, zoom and drag
+   ===================================================================== */
+
+function applyView() {
+  world.style.transform = "translate(" + view.x + "px, " + view.y + "px) scale(" + view.scale + ")";
+
+  const gridSize = 24 * view.scale;
+  canvas.style.backgroundSize = gridSize + "px " + gridSize + "px";
+  canvas.style.backgroundPosition = view.x + "px " + view.y + "px";
+
+  document.getElementById("zoom-label").textContent = Math.round(view.scale * 100) + "%";
+}
+
+function zoomAt(screenX, screenY, factor) {
+  const oldScale = view.scale;
+  let newScale = oldScale * factor;
+  newScale = Math.max(0.25, Math.min(2.5, newScale));
+
+  const ratio = newScale / oldScale;
+  view.x = screenX - (screenX - view.x) * ratio;
+  view.y = screenY - (screenY - view.y) * ratio;
+  view.scale = newScale;
+  applyView();
+}
+
+function zoomFromCenter(factor) {
+  const centerX = window.innerWidth / 2;
+  const centerY = (window.innerHeight + TOPBAR_HEIGHT) / 2;
+  zoomAt(centerX, centerY, factor);
+}
+
+function fitView() {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const key in nodeState) {
+    const node = nodeState[key];
+    minX = Math.min(minX, node.x);
+    minY = Math.min(minY, node.y);
+    maxX = Math.max(maxX, node.x + node.el.offsetWidth);
+    maxY = Math.max(maxY, node.y + node.el.offsetHeight);
+  }
+
+  const contentWidth = maxX - minX;
+  const contentHeight = maxY - minY;
+  const availableWidth = window.innerWidth - 60;
+  const legendHeight = document.getElementById("legend").offsetHeight;
+  const availableHeight = window.innerHeight - TOPBAR_HEIGHT - legendHeight - 70;
+
+  let scale = Math.min(availableWidth / contentWidth, availableHeight / contentHeight, 1);
+  scale = Math.max(scale, 0.3);
+
+  view.scale = scale;
+  view.x = (window.innerWidth - contentWidth * scale) / 2 - minX * scale;
+  view.y = TOPBAR_HEIGHT + 30 - minY * scale;
+  applyView();
+}
+
+function centerOnNode(key) {
+  const node = nodeState[key];
+  const width = node.el.offsetWidth;
+  const height = Math.min(node.el.offsetHeight, 400);
+
+  view.x = window.innerWidth / 2 - (node.x + width / 2) * view.scale;
+  view.y = (window.innerHeight + TOPBAR_HEIGHT) / 2 - (node.y + height / 2) * view.scale;
+  applyView();
+}
+
+function flashNode(key) {
+  const element = nodeState[key].el;
+  element.classList.add("flash");
+  setTimeout(function () {
+    element.classList.remove("flash");
+  }, 1200);
+}
+
+function startNodeDrag(event, key) {
+  if (event.target.closest(".toggle")) {
+    return;
+  }
+  event.stopPropagation();
+  const node = nodeState[key];
+  drag = {
+    mode: "node",
+    key: key,
+    startX: event.clientX,
+    startY: event.clientY,
+    originX: node.x,
+    originY: node.y
+  };
+  node.el.classList.add("dragging");
+}
+
+function startPan(event) {
+  if (event.target.closest(".node")) {
+    return;
+  }
+  closePopup();
+  drag = {
+    mode: "pan",
+    startX: event.clientX,
+    startY: event.clientY,
+    originX: view.x,
+    originY: view.y
+  };
+  canvas.classList.add("panning");
+}
+
+function onPointerMove(event) {
+  if (!drag) {
+    return;
+  }
+  const dx = event.clientX - drag.startX;
+  const dy = event.clientY - drag.startY;
+
+  if (drag.mode === "node") {
+    const node = nodeState[drag.key];
+    node.x = drag.originX + dx / view.scale;
+    node.y = drag.originY + dy / view.scale;
+    node.el.style.left = node.x + "px";
+    node.el.style.top = node.y + "px";
+    drawLinks();
+  }
+
+  if (drag.mode === "pan") {
+    view.x = drag.originX + dx;
+    view.y = drag.originY + dy;
+    applyView();
+  }
+}
+
+function onPointerUp() {
+  if (drag && drag.mode === "node") {
+    nodeState[drag.key].el.classList.remove("dragging");
+  }
+  canvas.classList.remove("panning");
+  drag = null;
+}
+
+function onWheel(event) {
+  event.preventDefault();
+  let factor = 0.92;
+  if (event.deltaY < 0) {
+    factor = 1.08;
+  }
+  zoomAt(event.clientX, event.clientY, factor);
+}
+
+
+/* =====================================================================
+   Collapse and expand
+   ===================================================================== */
+
+function setCollapsed(key, collapsed) {
+  const node = nodeState[key].el;
+  const button = node.querySelector(".toggle");
+  if (collapsed) {
+    node.classList.add("collapsed");
+    button.textContent = "+";
+  } else {
+    node.classList.remove("collapsed");
+    button.textContent = "–";
+  }
+}
+
+function toggleNode(key) {
+  const isCollapsed = nodeState[key].el.classList.contains("collapsed");
+  setCollapsed(key, !isCollapsed);
+  drawLinks();
+}
+
+function setAllCollapsed(collapsed) {
+  for (const key in nodeState) {
+    setCollapsed(key, collapsed);
+  }
+  drawLinks();
+}
+
+
+/* =====================================================================
+   Field popup
+   ===================================================================== */
+
+function openPopup(nodeKey, fieldName, row) {
+  const field = findField(nodeKey, fieldName);
+
+  if (activeField) {
+    activeField.classList.remove("active");
+  }
+  activeField = row;
+  row.classList.add("active");
+
+  popup.replaceChildren();
+
+  // Title line
+  const head = makeElement("div", "popup-head");
+  const title = makeElement("h3", "", field.name);
+  title.id = "popup-title";
+  head.appendChild(title);
+  head.appendChild(makeElement("span", "popup-type", field.type + " in " + NODES[nodeKey].title));
+  const close = makeElement("button", "popup-close", "×");
+  close.setAttribute("aria-label", "Close");
+  close.addEventListener("click", closePopup);
+  head.appendChild(close);
+  popup.appendChild(head);
+
+  popup.appendChild(makeElement("p", "popup-desc", field.desc));
+
+  // Badge explanations
+  const badges = field.badges || [];
+  if (badges.length > 0) {
+    const badgeBox = makeElement("div", "popup-badges");
+    for (const code of badges) {
+      const line = makeElement("span", "popup-badge-line");
+      line.appendChild(makeElement("span", "badge badge-" + code, BADGES[code].text));
+      line.appendChild(document.createTextNode(BADGES[code].meaning));
+      badgeBox.appendChild(line);
+    }
+    popup.appendChild(badgeBox);
+  }
+
+  if (field.example) {
+    const section = makeElement("div", "popup-section");
+    section.appendChild(makeElement("h4", "", "Example value"));
+    section.appendChild(makeElement("pre", "", field.example.join("\n")));
+    popup.appendChild(section);
+  }
+
+  if (field.sql) {
+    popup.appendChild(makeCopyBlock("How to use it in a query", withDate(field.sql)));
+  }
+
+  if (field.target) {
+    const goto = makeElement("button", "goto", "Show " + NODES[field.target].title);
+    goto.addEventListener("click", function () {
+      closePopup();
+      setCollapsed(field.target, false);
+      drawLinks();
+      centerOnNode(field.target);
+      flashNode(field.target);
+    });
+    popup.appendChild(goto);
+  }
+
+  popup.hidden = false;
+  placePopup(row);
+  close.focus();
+}
+
+function placePopup(row) {
+  const rowBox = row.getBoundingClientRect();
+  const width = popup.offsetWidth;
+  const height = popup.offsetHeight;
+
+  let left = rowBox.right + 12;
+  if (left + width > window.innerWidth - 12) {
+    left = rowBox.left - width - 12;
+  }
+  if (left < 12) {
+    left = 12;
+  }
+
+  let top = rowBox.top - 12;
+  if (top + height > window.innerHeight - 12) {
+    top = window.innerHeight - height - 12;
+  }
+  if (top < TOPBAR_HEIGHT + 8) {
+    top = TOPBAR_HEIGHT + 8;
+  }
+
+  popup.style.left = left + "px";
+  popup.style.top = top + "px";
+}
+
+function closePopup() {
+  popup.hidden = true;
+  if (activeField) {
+    activeField.classList.remove("active");
+    activeField = null;
+  }
+}
+
+
+/* =====================================================================
+   Search
+   ===================================================================== */
+
+function runSearch() {
+  const query = document.getElementById("search").value.trim().toLowerCase();
+  searchMatches = [];
+  searchIndex = -1;
+
+  for (const key in nodeState) {
+    const node = nodeState[key];
+    let nodeHasMatch = false;
+
+    for (const field of NODES[key].fields) {
+      const row = node.fieldEls[field.name];
+      row.classList.remove("hit", "current");
+
+      const haystack = (field.name + " " + field.type + " " + field.desc).toLowerCase();
+      if (query !== "" && haystack.includes(query)) {
+        row.classList.add("hit");
+        searchMatches.push({ key: key, name: field.name });
+        nodeHasMatch = true;
+      }
+    }
+
+    if (query !== "" && !nodeHasMatch) {
+      node.el.classList.add("dim");
+    } else {
+      node.el.classList.remove("dim");
+    }
+    if (nodeHasMatch) {
+      setCollapsed(key, false);
+    }
+  }
+
+  updateSearchCount(query);
+  drawLinks();
+}
+
+function updateSearchCount(query) {
+  const label = document.getElementById("search-count");
+  if (query === "") {
+    label.textContent = "";
+  } else if (searchMatches.length === 0) {
+    label.textContent = "No field found";
+  } else if (searchIndex < 0) {
+    label.textContent = searchMatches.length + " fields, Enter to jump";
+  } else {
+    label.textContent = (searchIndex + 1) + " of " + searchMatches.length;
+  }
+}
+
+function jumpToNextMatch(step) {
+  if (searchMatches.length === 0) {
+    return;
+  }
+  if (searchIndex >= 0) {
+    const previous = searchMatches[searchIndex];
+    nodeState[previous.key].fieldEls[previous.name].classList.remove("current");
+  }
+
+  searchIndex = (searchIndex + step + searchMatches.length) % searchMatches.length;
+  const match = searchMatches[searchIndex];
+  nodeState[match.key].fieldEls[match.name].classList.add("current");
+  centerOnNode(match.key);
+
+  const query = document.getElementById("search").value.trim();
+  updateSearchCount(query);
+}
+
+function onSearchKey(event) {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    let step = 1;
+    if (event.shiftKey) {
+      step = -1;
+    }
+    jumpToNextMatch(step);
+  }
+  if (event.key === "Escape") {
+    event.target.value = "";
+    runSearch();
+    event.target.blur();
+  }
+}
+
+
+/* =====================================================================
+   Queries panel and legend
+   ===================================================================== */
+
+function buildQueriesPanel() {
+  const intro = document.getElementById("queries-intro");
+  intro.innerHTML = "All queries use the crawl of <code>" + CRAWL_DATE + "</code>. " +
+                    "Change CRAWL_DATE at the top of the script to use another month.";
+
+  const list = document.getElementById("queries-list");
+  for (const query of QUERIES) {
+    const item = makeElement("article", "query");
+    const heading = makeElement("h3", "", query.title);
+    const text = withDate(query.sql);
+    const button = makeElement("button", "copy", "Copy");
+    button.addEventListener("click", function () {
+      copyToClipboard(text, button);
+    });
+    heading.appendChild(button);
+    item.appendChild(heading);
+    item.appendChild(makeElement("p", "", query.note));
+    item.appendChild(makeElement("pre", "", text));
+    list.appendChild(item);
+  }
+}
+
+function setQueriesOpen(open) {
+  const panel = document.getElementById("queries");
+  const button = document.getElementById("open-queries");
+  if (open) {
+    panel.classList.add("open");
+    closePopup();
+  } else {
+    panel.classList.remove("open");
+  }
+  button.setAttribute("aria-expanded", String(open));
+}
+
+function buildLegend() {
+  const legend = document.getElementById("legend");
+  for (const code in BADGES) {
+    const item = makeElement("span", "legend-item");
+    item.appendChild(makeElement("span", "badge badge-" + code, BADGES[code].text));
+    item.appendChild(makeElement("span", "", BADGES[code].meaning));
+    legend.appendChild(item);
+  }
+}
+
+
+/* =====================================================================
+   Start
+   ===================================================================== */
+
+function onKeyDown(event) {
+  const typing = event.target.tagName === "INPUT";
+  if (event.key === "/" && !typing) {
+    event.preventDefault();
+    document.getElementById("search").focus();
+  }
+  if (event.key === "Escape") {
+    closePopup();
+    setQueriesOpen(false);
+  }
+}
+
+function start() {
+  for (const key in NODES) {
+    buildNode(key);
+  }
+  buildLinks();
+  buildLegend();
+  buildQueriesPanel();
+
+  canvas.addEventListener("pointerdown", startPan);
+  canvas.addEventListener("wheel", onWheel, { passive: false });
+  window.addEventListener("pointermove", onPointerMove);
+  window.addEventListener("pointerup", onPointerUp);
+  window.addEventListener("keydown", onKeyDown);
+
+  document.getElementById("search").addEventListener("input", runSearch);
+  document.getElementById("search").addEventListener("keydown", onSearchKey);
+
+  document.getElementById("collapse-all").addEventListener("click", function () {
+    setAllCollapsed(true);
+  });
+  document.getElementById("expand-all").addEventListener("click", function () {
+    setAllCollapsed(false);
+  });
+  document.getElementById("open-queries").addEventListener("click", function () {
+    const isOpen = document.getElementById("queries").classList.contains("open");
+    setQueriesOpen(!isOpen);
+  });
+  document.getElementById("close-queries").addEventListener("click", function () {
+    setQueriesOpen(false);
+  });
+
+  document.getElementById("zoom-in").addEventListener("click", function () {
+    zoomFromCenter(1.2);
+  });
+  document.getElementById("zoom-out").addEventListener("click", function () {
+    zoomFromCenter(1 / 1.2);
+  });
+  document.getElementById("zoom-fit").addEventListener("click", fitView);
+
+  drawLinks();
+  fitView();
+}
+
+// Wait for the fonts, so field positions (and the lines) are measured correctly.
+document.fonts.ready.then(start);
+</script>
+</body>
+</html>
